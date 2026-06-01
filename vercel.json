@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/proactive",
+      "schedule": "0 13 * * *"
+    }
+  ],
+  "functions": {
+    "app/api/telegram/route.ts": { "maxDuration": 60 },
+    "app/api/proactive/route.ts": { "maxDuration": 60 }
+  }
+}
