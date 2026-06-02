@@ -109,8 +109,17 @@ export async function handleTextMessage(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("agent error", err);
-    await sendMessage(chatId, `❌ Error: ${msg}`);
+    const stack = err instanceof Error ? err.stack : "";
+    const errAny = err as { status?: number; error?: unknown; body?: unknown; cause?: unknown };
+    console.error("agent error", {
+      message: msg,
+      status: errAny.status,
+      body: errAny.body,
+      cause: errAny.cause,
+      stack,
+    });
+    const detail = errAny.status ? ` (status ${errAny.status})` : "";
+    await sendMessage(chatId, `❌ Error${detail}: ${msg}`);
   }
 }
 
