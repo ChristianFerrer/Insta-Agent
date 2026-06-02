@@ -1,38 +1,68 @@
-// Free image generation via Pollinations.ai — no API key, no payment.
-// Runs Flux Schnell behind the scenes. Community-sponsored, no SLA but
-// works well for demos. Replace with fal.ai or Replicate for production.
+// Free image generation via Google Gemini 2.5 Flash Image ("Nano Banana").
+// Generous free tier from aistudio.google.com. Fast (~3-5s), reliable.
+//
+// Flow: Gemini returns base64 image bytes -> upload to Supabase Storage
+// -> return the public URL. We upload eagerly so Telegram has a stable
+// URL to render and so the image persists past the conversation.
 
-import { STYLE_PROMPT_BASE } from "../config";
+import { STYLE_PROMPT_BASE, env } from "../config";
+import { uploadGeneratedImage } from "../db";
 
-const POLLINATIONS_BASE = "https://image.pollinations.ai/prompt";
-const IMAGE_WIDTH = 1024;
-const IMAGE_HEIGHT = 1024;
+const GEMINI_MODEL = "gemini-2.5-flash-image";
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 export function buildImagePrompt(subjectDescription: string, composition = "centered portrait"): string {
   return `${STYLE_PROMPT_BASE}, portrait of ${subjectDescription}, ${composition}, vintage cartoon poster style`;
 }
 
-function buildUrl(prompt: string, seed: number): string {
-  const params = new URLSearchParams({
-    width: String(IMAGE_WIDTH),
-    height: String(IMAGE_HEIGHT),
-    model: "flux",
-    nologo: "true",
-    enhance: "false",
-    seed: String(seed),
-  });
-  return `${POLLINATIONS_BASE}/${encodeURIComponent(prompt)}?${params.toString()}`;
-}
+type GeminiResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+        inlineData?: { mimeType: string; data: string };
+      }>;
+    };
+    finishReason?: string;
+  }>;
+  promptFeedback?: { blockReason?: string };
+  error?: { message?: string; status?: string };
+};
 
-async function ensureReachable(url: string): Promise<void> {
-  // Pollinations generates the image at the moment the URL is fetched.
-  // We do a HEAD-like probe (small range GET) to surface errors early and
-  // warm the cache so Telegram's image fetch completes quickly.
-  const resp = await fetch(url, { method: "GET", headers: { Range: "bytes=0-0" } });
-  if (!resp.ok && resp.status !== 206) {
-    const body = await resp.text().catch(() => "");
-    throw new Error(`Pollinations failed (${resp.status}): ${body.slice(0, 200)}`);
+async function callGemini(prompt: string): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  if (!env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured");
   }
+
+  const resp = await fetch(`${GEMINI_ENDPOINT}?key=${env.GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ["IMAGE"] },
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Gemini API ${resp.status}: ${body.slice(0, 300)}`);
+  }
+
+  const json = (await resp.json()) as GeminiResponse;
+  if (json.error) throw new Error(`Gemini error: ${json.error.message}`);
+  if (json.promptFeedback?.blockReason) {
+    throw new Error(`Gemini blocked the prompt: ${json.promptFeedback.blockReason}`);
+  }
+
+  const parts = json.candidates?.[0]?.content?.parts ?? [];
+  const inline = parts.find((p) => p.inlineData)?.inlineData;
+  if (!inline?.data) {
+    const finishReason = json.candidates?.[0]?.finishReason;
+    throw new Error(`Gemini returned no image (finishReason: ${finishReason ?? "unknown"})`);
+  }
+
+  const bytes = Uint8Array.from(atob(inline.data), (c) => c.charCodeAt(0));
+  return { bytes, mimeType: inline.mimeType ?? "image/png" };
 }
 
 export async function generateImage(
@@ -40,17 +70,15 @@ export async function generateImage(
   composition = "centered portrait",
 ): Promise<{ url: string; prompt: string }> {
   const prompt = buildImagePrompt(subjectDescription, composition);
-  const seed = Math.floor(Math.random() * 1_000_000_000);
-  const url = buildUrl(prompt, seed);
-  await ensureReachable(url);
+  const { bytes, mimeType } = await callGemini(prompt);
+  const url = await uploadGeneratedImage(bytes, mimeType, "generation");
   return { url, prompt };
 }
 
 export async function regenerateImage(
   previousPrompt: string,
 ): Promise<{ url: string; prompt: string }> {
-  const seed = Math.floor(Math.random() * 1_000_000_000);
-  const url = buildUrl(previousPrompt, seed);
-  await ensureReachable(url);
+  const { bytes, mimeType } = await callGemini(previousPrompt);
+  const url = await uploadGeneratedImage(bytes, mimeType, "regen");
   return { url, prompt: previousPrompt };
 }

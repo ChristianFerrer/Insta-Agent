@@ -12,7 +12,7 @@ export async function GET(): Promise<NextResponse> {
     capabilities: {
       telegram: Boolean(env.TELEGRAM_BOT_TOKEN),
       anthropic: Boolean(env.ANTHROPIC_API_KEY),
-      image_gen: "pollinations (free)",
+      gemini: Boolean(env.GEMINI_API_KEY),
       supabase: Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY),
       instagram: instagramConfigured(),
     },

@@ -218,6 +218,23 @@ export async function logProactive(chatId: number, subject: string): Promise<voi
 
 // ---------------- Storage ----------------
 
+export async function uploadGeneratedImage(
+  bytes: Uint8Array,
+  mimeType: string,
+  kind: "generation" | "regen",
+): Promise<string> {
+  const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
+  const path = `generated/${new Date().getFullYear()}/${kind}-${Date.now()}-${Math.floor(Math.random() * 1e9)}.${ext}`;
+
+  const { error } = await sb().storage
+    .from(env.SUPABASE_STORAGE_BUCKET)
+    .upload(path, bytes, { contentType: mimeType, upsert: false });
+  if (error) throw error;
+
+  const { data } = sb().storage.from(env.SUPABASE_STORAGE_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export async function archiveImage(sourceUrl: string, subject: string): Promise<string> {
   const resp = await fetch(sourceUrl);
   if (!resp.ok) throw new Error(`Failed to fetch source image: ${resp.status}`);

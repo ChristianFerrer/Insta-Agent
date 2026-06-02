@@ -9,6 +9,7 @@ const schema = z.object({
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
 
   FAL_KEY: z.string().default(""),
+  GEMINI_API_KEY: z.string().default(""),
 
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
