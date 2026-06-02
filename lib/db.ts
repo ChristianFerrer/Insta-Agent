@@ -222,12 +222,14 @@ export async function archiveImage(sourceUrl: string, subject: string): Promise<
   const resp = await fetch(sourceUrl);
   if (!resp.ok) throw new Error(`Failed to fetch source image: ${resp.status}`);
   const buf = new Uint8Array(await resp.arrayBuffer());
+  const contentType = resp.headers.get("content-type") ?? "image/jpeg";
+  const ext = contentType.includes("png") ? "png" : "jpg";
   const safeSubject = subject.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const path = `${new Date().getFullYear()}/${safeSubject}-${Date.now()}.png`;
+  const path = `${new Date().getFullYear()}/${safeSubject}-${Date.now()}.${ext}`;
 
   const { error } = await sb().storage
     .from(env.SUPABASE_STORAGE_BUCKET)
-    .upload(path, buf, { contentType: "image/png", upsert: false });
+    .upload(path, buf, { contentType, upsert: false });
   if (error) throw error;
 
   const { data } = sb().storage.from(env.SUPABASE_STORAGE_BUCKET).getPublicUrl(path);
